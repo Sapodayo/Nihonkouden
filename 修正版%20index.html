@@ -1,0 +1,888 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Life Scope 風モニター</title>
+<style>
+  :root{
+    padding-top: env(safe-area-inset-top,0px);
+    padding-bottom: env(safe-area-inset-bottom,0px);
+    box-sizing: border-box;
+  }
+  html,body{
+    margin:0; height:100%; background:#000; color:#fff;
+    font-family:"Helvetica Neue",Arial,"Hiragino Sans",sans-serif;
+    overflow:hidden;
+  }
+  #frame{
+    width:100%; height:100%;
+    display:flex; flex-direction:column;
+    background:#050506;
+  }
+  #top{
+    display:flex; justify-content:space-between; align-items:center;
+    padding:4px 12px; font-size:12px; color:#aaa;
+    border-bottom:1px solid #222;
+  }
+  #alarmMsg{
+    font-weight:700; font-size:12px; letter-spacing:.5px;
+    padding:2px 10px; border-radius:3px;
+  }
+  #alarmMsg:empty{ padding:0; }
+  #hospitalTopDisplay{
+    color:#fff; font-size:13px; font-weight:600; letter-spacing:.3px;
+  }
+  #hospitalTopDisplay:empty{ display:none; }
+  .lane-label{ position:absolute; left:8px; top:4px; font-size:11px; color:#3dff3d; opacity:.9; pointer-events:none; z-index:2; }
+  #alarmLevelBadges{ display:flex; gap:4px; }
+  .alarm-box{
+    font-size:10px; font-weight:800; padding:1px 9px;
+    border-radius:2px; letter-spacing:.5px; opacity:.28; transition:opacity .2s;
+  }
+  #badgeWarning{ background:#ff2020; color:#fff; }
+  #badgeCaution{ background:#ffcc00; color:#000; }
+  .alarm-box.active{ opacity:1; }
+  #badgeWarning.active{ animation: alarmTextBlink 1s infinite; }
+  #disclaimer{
+    position:absolute; right:10px; bottom:8px;
+    display:flex; align-items:center; gap:8px;
+    font-size:10px; color:#ffd24d; background:rgba(42,34,0,0.85);
+    padding:4px 8px; border:1px solid #443300; border-radius:4px;
+    letter-spacing:.2px; max-width:340px; text-align:right; z-index:20;
+  }
+  #disclaimerClose{
+    cursor:pointer; color:#ffd24d; opacity:.7; font-size:12px; padding-left:4px;
+    line-height:1;
+  }
+  #disclaimerClose:hover{ opacity:1; }
+  #alarmMsg.level-caution{ color:#000; background:#ffcc00; }
+  #alarmMsg.level-warning{ color:#fff; background:#ff2020; animation: alarmTextBlink 1s infinite; }
+  @keyframes alarmTextBlink{ 0%,100%{opacity:1;} 50%{opacity:.35;} }
+  #frame.alarming-caution{ animation: alarmFlashCaution 1.2s infinite; }
+  #frame.alarming-warning{ animation: alarmFlash 1s infinite; }
+  @keyframes alarmFlashCaution{
+    0%,100%{ box-shadow: inset 0 0 0 3px #ff9d1f; }
+    50%{ box-shadow: inset 0 0 0 3px transparent; }
+  }
+  #main{
+    flex:1; display:flex; overflow:hidden;
+  }
+  #numbers{
+    width:22%; min-width:120px; display:flex; flex-direction:column;
+    border-right:1px solid #222;
+  }
+  .numbox{
+    flex:1; display:flex; flex-direction:column; justify-content:center;
+    padding:2px 10px; border-bottom:1px solid #222; position:relative;
+  }
+  .numbox .label{ font-size:11px; opacity:.8; }
+  .numbox .value{ font-size:clamp(28px,6vw,48px); font-weight:700; line-height:1; }
+  .numbox .sub{ font-size:11px; opacity:.7; }
+  .green{color:#3dff3d;} .red{color:#ff4040;} .cyan{color:#38e0ff;} .white{color:#fff;}
+  #heartIcon{
+    display:inline-block; margin-left:6px; font-size:14px; color:#3dff3d;
+    transform:scale(1); transform-origin:center;
+  }
+  #heartIcon.beat{ animation: heartPulse .28s ease-out; }
+  @keyframes heartPulse{
+    0%{ transform:scale(1); }
+    25%{ transform:scale(1.55); }
+    55%{ transform:scale(0.9); }
+    100%{ transform:scale(1); }
+  }
+  .numbox#hrBox.hr-high{ background:#1eaa1e; transition:background .3s; }
+  .numbox#hrBox.hr-high .value, .numbox#hrBox.hr-high .label, .numbox#hrBox.hr-high .sub{ color:#0a2a0a; }
+  .numbox#hrBox.hr-high #heartIcon{ color:#0a2a0a; }
+  .numbox#bpBox.bp-abnormal{ background:#cc2222; transition:background .3s; }
+  .numbox#bpBox.bp-abnormal .value, .numbox#bpBox.bp-abnormal .label, .numbox#bpBox.bp-abnormal .sub{ color:#2a0a0a; }
+  .numbox#spo2Box.spo2-low{ background:#38e0ff; transition:background .3s; }
+  .numbox#spo2Box.spo2-low .value, .numbox#spo2Box.spo2-low .label, .numbox#spo2Box.spo2-low .sub{ color:#003040; }
+  #waves{
+    flex:1; min-height:0; display:flex; flex-direction:column;
+  }
+  .wave-row{ flex:1; min-height:0; border-bottom:1px solid #222; position:relative; }
+  canvas{ position:absolute; top:0; left:0; right:0; bottom:0; width:100%; height:100%; display:block; }
+  #buttons{
+    display:flex; gap:4px; padding:6px; background:#0b0b0c;
+    border-top:1px solid #222; flex-wrap:wrap;
+  }
+  .btn{
+    flex:1; min-width:52px; background:#1c1c1e; color:#ddd;
+    font-size:11px; border-radius:4px; padding:8px 2px; text-align:center;
+    border:1px solid #2c2c2e;
+  }
+  .btn.alarm{ background:#3a1c1c; color:#ff8080; }
+  .btn.active{ background:#2c4c2c; color:#9f9; border-color:#4c8c4c; }
+  .btn{ cursor:pointer; user-select:none; }
+  @keyframes alarmFlash{
+    0%,100%{ box-shadow: inset 0 0 0 3px #ff2020; }
+    50%{ box-shadow: inset 0 0 0 3px transparent; }
+  }
+  #settings{
+    position:absolute; top:0; right:0; bottom:0; width:min(280px,80%);
+    background:#111; border-left:1px solid #333; padding:14px;
+    transform:translateX(100%); transition:transform .25s ease;
+    z-index:10; overflow-y:auto;
+  }
+  #settings.open{ transform:translateX(0); }
+  #settings h3{ margin:4px 0 12px; font-size:14px; color:#ddd; }
+  #settings label{ display:block; font-size:12px; color:#aaa; margin-top:12px; }
+  #settings input[type=range]{ width:100%; }
+  #settings .valshow{ float:right; color:#fff; }
+  #settings .closeBtn{
+    position:absolute; top:8px; right:10px; color:#888; cursor:pointer; font-size:16px;
+  }
+  #main{ position:relative; }
+</style>
+</head>
+<body>
+<div id="frame">
+  <div id="top">
+    <span>患者A &nbsp; 太郎</span>
+    <span id="alarmMsg"></span>
+    <span style="display:flex; align-items:center; gap:14px;">
+      <span style="display:flex; flex-direction:column; align-items:flex-end; gap:2px;">
+        <span id="hospitalTopDisplay"></span>
+        <span id="alarmLevelBadges">
+          <span id="badgeWarning" class="alarm-box">警告</span>
+          <span id="badgeCaution" class="alarm-box">注意</span>
+        </span>
+      </span>
+      <span id="clock"></span>
+    </span>
+  </div>
+  <div id="main">
+    <div id="numbers">
+      <div class="numbox" id="hrBox">
+        <span class="label">心拍数 HR<span id="heartIcon">&#10084;</span></span>
+        <span class="value green" id="hrVal">80</span>
+        <span class="sub green">018</span>
+      </div>
+      <div class="numbox" id="bpBox">
+        <span class="label">血圧 NIBP</span>
+        <span class="value red" id="bpVal">118/76</span>
+        <span class="sub red">(91) mmHg</span>
+      </div>
+      <div class="numbox" id="spo2Box">
+        <span class="label">SpO2</span>
+        <span class="value cyan" id="spo2Val">98</span>
+        <span class="sub cyan" id="plethVal">%　脈拍 97</span>
+      </div>
+      <div class="numbox">
+        <span class="label">呼吸数 RR</span>
+        <span class="value white" id="rrVal">12</span>
+        <span class="sub white">38</span>
+      </div>
+    </div>
+    <div id="waves">
+      <div class="wave-row"><canvas id="ecgCanvas"></canvas><span class="lane-label" id="rhythmLabel">II　洞調律 Sinus</span></div>
+      <div class="wave-row"><canvas id="artCanvas"></canvas></div>
+      <div class="wave-row"><canvas id="spo2Canvas"></canvas></div>
+      <div class="wave-row"><canvas id="respCanvas"></canvas></div>
+    </div>
+    <div id="disclaimer"><span id="disclaimerText">これは実際の医療機器ではなく、<br>ゲーム・シミュレーション用途のモニターです。</span><span id="disclaimerClose" title="閉じる">✕</span></div>
+    <div id="settings">
+      <span class="closeBtn" id="closeSettings">✕</span>
+      <h3>設定パネル</h3>
+      <label>心拍数 HR <span class="valshow" id="hrShow">80</span>
+        <input type="range" id="hrSlider" min="0" max="180" value="80"></label>
+      <label>収縮期血圧 SBP <span class="valshow" id="sbpShow">118</span>
+        <input type="range" id="sbpSlider" min="0" max="220" value="118"></label>
+      <label>拡張期血圧 DBP <span class="valshow" id="dbpShow">76</span>
+        <input type="range" id="dbpSlider" min="0" max="140" value="76"></label>
+      <label>SpO2 <span class="valshow" id="spo2Show">98</span>
+        <input type="range" id="spo2Slider" min="70" max="100" value="98"></label>
+      <label>呼吸数 RR <span class="valshow" id="rrShow">12</span>
+        <input type="range" id="rrSlider" min="0" max="50" value="12"></label>
+
+      <div id="advToggle" style="margin-top:18px; padding-top:10px; border-top:1px solid #333; cursor:pointer; color:#8ec6ff; font-size:12px;">
+        ▶ 詳細設定
+      </div>
+      <div id="advPanel" style="display:none; margin-top:8px;">
+        <label>患者名
+          <input type="text" id="patientName" value="太郎" style="width:100%; margin-top:4px; background:#222; color:#fff; border:1px solid #444; border-radius:3px; padding:4px;">
+        </label>
+        <label>病院名（画面右上に表示）
+          <input type="text" id="hospitalName" value="" placeholder="例：〇〇総合病院" style="width:100%; margin-top:4px; background:#222; color:#fff; border:1px solid #444; border-radius:3px; padding:4px;">
+        </label>
+
+        <h3 style="margin-top:16px;">アラームしきい値</h3>
+        <label>HR 警告 高値 <span class="valshow" id="hrWarnHighShow">140</span>
+          <input type="range" id="hrWarnHighSlider" min="100" max="220" value="140"></label>
+        <label>HR 警告 低値 <span class="valshow" id="hrWarnLowShow">45</span>
+          <input type="range" id="hrWarnLowSlider" min="0" max="80" value="45"></label>
+        <label>SpO2 警告 低値 <span class="valshow" id="spo2WarnShow">90</span>
+          <input type="range" id="spo2WarnSlider" min="70" max="95" value="90"></label>
+        <label>SBP 警告 高値 <span class="valshow" id="sbpWarnHighShow">200</span>
+          <input type="range" id="sbpWarnHighSlider" min="140" max="260" value="200"></label>
+        <label>SBP 警告 低値 <span class="valshow" id="sbpWarnLowShow">80</span>
+          <input type="range" id="sbpWarnLowSlider" min="0" max="120" value="80"></label>
+
+        <h3 style="margin-top:16px;">心リズム（シミュレーション）</h3>
+        <div style="display:flex; gap:6px; margin-top:6px;">
+          <div class="btn" id="btnVT">VT波形</div>
+          <div class="btn" id="btnVF">VF波形</div>
+        </div>
+        <label style="display:flex; align-items:center; gap:6px; margin-top:8px;">
+          <input type="checkbox" id="autoVF" checked> VTからVFへ自動移行する
+        </label>
+        <div class="btn" id="btnShock" style="margin-top:10px;">⚡ 除細動（ショック）</div>
+        <label style="display:flex; align-items:center; gap:6px; margin-top:8px;">
+          <input type="checkbox" id="shockSuccess" checked> 除細動成功（洞調律に復帰）
+        </label>
+        <h3 style="margin-top:16px;">追加アラーム</h3>
+        <label>RR 警告 高値 <span class="valshow" id="rrWarnHighShow">30</span>
+          <input type="range" id="rrWarnHighSlider" min="20" max="50" value="30"></label>
+        <label>RR 警告 低値 <span class="valshow" id="rrWarnLowShow">8</span>
+          <input type="range" id="rrWarnLowSlider" min="0" max="15" value="8"></label>
+        <h3 style="margin-top:16px;">心拍同期音</h3>
+        <label style="display:flex; align-items:center; gap:6px;">
+          <input type="checkbox" id="qrsToggle" checked> 心拍同期音（ピッ音）
+        </label>
+        <label>音量 <span class="valshow" id="qrsVolShow">50</span>
+          <input type="range" id="qrsVolSlider" min="0" max="100" value="50"></label>
+        <label>音色
+          <select id="qrsType" style="width:100%; margin-top:4px; background:#222; color:#fff; border:1px solid #444; border-radius:3px; padding:4px;">
+            <option value="beep">ピッ（標準）</option>
+            <option value="soft">ポッ（柔らかい）</option>
+            <option value="tri">ピー（丸い音）</option>
+            <option value="buzz">ブッ（電子音）</option>
+            <option value="two">ピコッ（2音）</option>
+          </select>
+        </label>
+        <label>基準音高 <span class="valshow" id="qrsPitchShow">900</span>
+          <input type="range" id="qrsPitchSlider" min="300" max="1600" step="10" value="900"></label>
+        <label style="display:flex; align-items:center; gap:6px;">
+          <input type="checkbox" id="qrsSpo2Link" checked> SpO2連動
+        </label>
+        <div class="btn" id="btnQrsPreview" style="margin-top:8px;">♪ 試聴</div>
+        <h3 style="margin-top:16px;">その他</h3>
+        <label>無音の持続時間(秒) <span class="valshow" id="muteDurShow">90</span>
+          <input type="range" id="muteDurSlider" min="10" max="300" value="90"></label>
+        <label>波形振幅(ゲイン) <span class="valshow" id="gainShow">1.0x</span>
+          <input type="range" id="gainSlider" min="0.3" max="2" step="0.1" value="1.0"></label>
+      </div>
+    </div>
+  </div>
+  <div id="buttons">
+    <div class="btn" id="btnMute">無音</div>
+    <div class="btn" id="btnRecord">記録</div>
+    <div class="btn alarm" id="btnAlarm">アラーム</div>
+    <div class="btn" id="btnAlarmTest">アラームテスト</div>
+    <div class="btn" id="btnSettings">設定</div>
+    <div class="btn" id="btnFreeze">画面停止</div>
+    <div class="btn" id="btnSpeed">波形速度</div>
+  </div>
+</div>
+
+<script>
+function clockTick(){
+  const d = new Date();
+  const p = n=>String(n).padStart(2,"0");
+  document.getElementById("clock").textContent =
+    `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
+}
+clockTick(); setInterval(clockTick,1000);
+
+// --- 状態管理（スライダーで操作可能な値） ---
+const state = {
+  rhythm:'nsr', shockT0:null,
+  hr:80, sbp:118, dbp:76, spo2:98, rr:12, speedMul:1, frozen:false, muted:false,
+  gain:1.0, muteDuration:90,
+  thresholds:{ hrWarnHigh:120, hrWarnLow:50, spo2Warn:90, rrWarnHigh:30, rrWarnLow:8, sbpWarnHigh:180, sbpWarnLow:80 }
+};
+
+function makeScroller(canvasId, color, genPoint){
+  const canvas = document.getElementById(canvasId);
+  const ctx = canvas.getContext("2d");
+  let w,h,buf=[];
+  let t=0;
+  function resize(){
+    const dpr = window.devicePixelRatio||1;
+    w = canvas.clientWidth; h = canvas.clientHeight;
+    canvas.width = w*dpr; canvas.height = h*dpr;
+    ctx.setTransform(dpr,0,0,dpr,0,0);
+    const hz = 1.1 * state.speedMul;
+    const len = Math.max(1, Math.ceil(w));
+    // 画面幅ぶんのバッファをあらかじめ実波形で埋めておく（スクロール待ちで平線になるのを防ぐ）
+    // 負の時間だとJSの%演算で位相計算が狂うため、常に正になる大きなオフセットを加える
+    const TIME_OFFSET = 1000000;
+    buf = new Array(len);
+    for(let i=0;i<len;i++){
+      buf[i] = genPoint((i - len) * hz + TIME_OFFSET, h);
+    }
+    t = TIME_OFFSET; // 以後はここから連続して継続
+  }
+  window.addEventListener("resize", resize);
+  resize();
+
+  function step(){
+    if(!state.frozen){
+      const hz = 1.1 * state.speedMul;
+      const y = genPoint(t, h);
+      t += hz;
+      buf.push(y);
+      if(buf.length > w) buf.shift();
+
+      ctx.clearRect(0,0,w,h);
+      ctx.strokeStyle = color;
+      ctx.lineWidth = 1.6;
+      ctx.beginPath();
+      for(let i=0;i<buf.length;i++){
+        if(i===0) ctx.moveTo(i,buf[i]); else ctx.lineTo(i,buf[i]);
+      }
+      ctx.stroke();
+    }
+    requestAnimationFrame(step);
+  }
+  requestAnimationFrame(step);
+}
+
+// 心拍数に応じてサイクル長を変える（速い心拍=短い波）
+function cycleLen(){ return Math.max(18, 3600/Math.max(state.hr,30)); }
+
+let seeding=false;
+let lastQrsMs=0, prevQrsP=0;
+const qrs={enabled:true,volume:0.5,type:'beep',base:900,spo2Link:true};
+
+function qrsCheck(p,peak){
+  if(!seeding && prevQrsP < peak && p >= peak && p-prevQrsP < 0.5) fireQRS();
+  prevQrsP=p;
+}
+function fireQRS(){
+  const now=performance.now();
+  if(now-lastQrsMs<150) return;
+  lastQrsMs=now;
+  if(!qrs.enabled || qrs.volume<=0) return;
+  if(!ensureAudio() || audioCtx.state!=="running") return;
+  playQrsTone();
+}
+function playQrsTone(){
+  const f=qrs.spo2Link ? Math.max(200,Math.min(2000,qrs.base+(state.spo2-98)*25)) : qrs.base;
+  const v=qrs.volume;
+  switch(qrs.type){
+    case 'soft': pulse(0,f*0.75,"sine",0.35*v,0.13); break;
+    case 'tri': pulse(0,f,"triangle",0.30*v,0.09); break;
+    case 'buzz': pulse(0,f,"square",0.14*v,0.06); break;
+    case 'two': pulse(0,f,"sine",0.28*v,0.05); pulse(0.07,f*1.26,"sine",0.28*v,0.06); break;
+    default: pulse(0,f,"sine",0.30*v,0.07);
+  }
+}
+
+function ecgGen(t, h){
+  const base = h*0.5;
+
+  // VFはHR=0でも波形を描くため、HR判定より先に処理する。
+  if(state.rhythm === 'vf'){
+    const env = 0.65 + 0.35*Math.sin(t*0.031);
+    const w = 0.55*Math.sin(t*0.34 + 1.6*Math.sin(t*0.047))
+            + 0.35*Math.sin(t*0.63 + 0.9*Math.sin(t*0.021))
+            + 0.22*Math.sin(t*0.19 + 2.0);
+    return base - w*env*Math.min(h*0.3,46)*state.gain;
+  }
+
+  if(state.rhythm === 'asys' || state.hr === 0) return base;
+
+  const cycle = cycleLen();
+
+  if(state.rhythm === 'vt'){
+    const p = (t % cycle)/cycle;
+    qrsCheck(p,0.5);
+    let w;
+    if(p < 0.35){
+      const x=p/0.35;
+      w=-0.55+0.6*(x*x*(3-2*x));
+    } else if(p < 0.5){
+      const x=(p-0.35)/0.15;
+      w=0.05+0.95*Math.pow(x,1.5);
+    } else if(p < 0.62){
+      const x=(p-0.5)/0.12;
+      w=1.0-1.6*x;
+    } else {
+      const x=(p-0.62)/0.38;
+      w=-0.6+0.05*x-0.1*Math.sin(Math.PI*x);
+    }
+    return base-w*Math.min(h*0.3,46)*state.gain;
+  }
+
+  const p=(t % cycle)/cycle;
+  qrsCheck(p,0.265);
+  const comps=[
+    [0.140,0.030,2.0,0.13],
+    [0.235,0.020,1.1,-0.12],
+    [0.265,0.022,1.2,1.00],
+    [0.298,0.020,1.1,-0.25],
+    [0.500,0.070,4.0,0.28]
+  ];
+  let w=0;
+  for(const [c,sp,smin,a] of comps){
+    const d=(p-c)*cycle;
+    const sg=Math.max(sp*cycle,smin);
+    w+=a*Math.exp(-0.5*(d/sg)*(d/sg));
+  }
+  return base-w*Math.min(h*0.28,44)*state.gain;
+}
+
+function artGen(t, h){
+  const base = h*0.5;
+  if(state.hr === 0 || state.rhythm === 'vf' || state.rhythm === 'asys') return base; // 灌流なし → フラットライン
+  const cycle = cycleLen();
+  const phase = (t % cycle)/cycle;
+  const amp = (12 + (state.sbp-state.dbp)*0.25) * state.gain * (state.rhythm === 'vt' ? 0.55 : 1);
+  let v;
+  if(phase < 0.3) v = Math.sin(phase/0.3*Math.PI/2)*amp;
+  else if(phase < 0.5) v = amp - (phase-0.3)/0.2*amp*0.6;
+  else v = amp*0.4*Math.exp(-(phase-0.5)*6);
+  return base - v;
+}
+
+function spo2Gen(t, h){
+  const base = h*0.5;
+  if(state.hr === 0 || state.rhythm === 'vf' || state.rhythm === 'asys') return base; // 灌流なし → フラットライン
+  const cycle = cycleLen();
+  const phase = (t % cycle)/cycle;
+  const v = Math.pow(Math.sin(phase*Math.PI),3)*28*(state.spo2/98)*state.gain*(state.rhythm === 'vt' ? 0.55 : 1);
+  return base - v;
+}
+
+function respCycleLen(){ return Math.max(60, 3600/Math.max(state.rr,4)); }
+
+function respGen(t, h){
+  const base = h*0.5;
+  if(state.rr === 0) return base; // 無呼吸 → フラットライン
+  const cycle = respCycleLen();
+  const phase = (t % cycle)/cycle;
+  const amp = 20 * state.gain;
+  // なだらかな呼吸曲線（吸気→呼気）
+  const v = Math.sin(phase*2*Math.PI - Math.PI/2)*0.5 + 0.5; // 0〜1のなだらかな山
+  return base - (v-0.5)*2*amp;
+}
+
+makeScroller("ecgCanvas", "#3dff3d", ecgGen);
+makeScroller("artCanvas", "#ff4040", artGen);
+makeScroller("spo2Canvas", "#38e0ff", spo2Gen);
+makeScroller("respCanvas", "#ffffff", respGen);
+
+// --- 心拍アイコンをHRに同期して拍動させる ---
+const heartIcon = document.getElementById("heartIcon");
+let heartTimer = null;
+function scheduleBeat(){
+  if(state.hr === 0){
+    heartIcon.classList.remove("beat");
+    heartTimer = setTimeout(scheduleBeat, 500); // 0の間は待機して再チェック
+    return;
+  }
+  const intervalMs = 60000 / Math.max(state.hr, 30);
+  heartTimer = setTimeout(()=>{
+    heartIcon.classList.remove("beat");
+    void heartIcon.offsetWidth; // reflow でアニメーションを再トリガー
+    heartIcon.classList.add("beat");
+    scheduleBeat();
+  }, intervalMs);
+}
+scheduleBeat();
+
+// --- 数値表示の更新（軽いノイズ付き） ---
+function refreshNumbers(){
+  document.getElementById("hrVal").textContent =
+    state.hr === 0 ? "?" : state.hr + (Math.random()<0.5?0:1);
+  const sbpTxt = state.sbp === 0 ? "?" : state.sbp;
+  const dbpTxt = state.dbp === 0 ? "?" : state.dbp;
+  document.getElementById("bpVal").textContent = `${sbpTxt}/${dbpTxt}`;
+  document.getElementById("spo2Val").textContent = state.spo2;
+  document.getElementById("rrVal").textContent = state.rr;
+  document.getElementById("hrBox").classList.toggle("hr-high", state.hr >= 100);
+  document.getElementById("bpBox").classList.toggle("bp-abnormal", (state.sbp > 0 && state.sbp >= 140) || (state.sbp > 0 && state.sbp <= 90));
+  document.getElementById("spo2Box").classList.toggle("spo2-low", state.spo2 <= 92);
+}
+setInterval(refreshNumbers, 1500);
+refreshNumbers();
+
+// --- スライダー連動 ---
+function bindSlider(sliderId, showId, key){
+  const slider = document.getElementById(sliderId);
+  const show = document.getElementById(showId);
+  slider.addEventListener("input", ()=>{
+    state[key] = parseInt(slider.value,10);
+    show.textContent = slider.value;
+    refreshNumbers();
+    checkAlarm();
+  });
+}
+bindSlider("hrSlider","hrShow","hr");
+bindSlider("sbpSlider","sbpShow","sbp");
+bindSlider("dbpSlider","dbpShow","dbp");
+bindSlider("spo2Slider","spo2Show","spo2");
+bindSlider("rrSlider","rrShow","rr");
+
+// --- 詳細設定パネルの開閉 ---
+const advToggle = document.getElementById("advToggle");
+const advPanel = document.getElementById("advPanel");
+advToggle.addEventListener("click", ()=>{
+  const open = advPanel.style.display !== "none";
+  advPanel.style.display = open ? "none" : "block";
+  advToggle.textContent = (open ? "▶" : "▼") + " 詳細設定";
+});
+
+// --- 患者名 ---
+document.getElementById("patientName").addEventListener("input", (e)=>{
+  document.querySelector("#top span:first-child").textContent = "患者A　" + e.target.value;
+});
+
+// --- 病院名（画面右上に白文字で表示） ---
+document.getElementById("hospitalName").addEventListener("input", (e)=>{
+  const v = e.target.value.trim();
+  document.getElementById("hospitalTopDisplay").textContent = v ? v : "";
+});
+
+// --- 注記を閉じる ---
+document.getElementById("disclaimerClose").addEventListener("click", ()=>{
+  document.getElementById("disclaimer").style.display = "none";
+});
+
+// --- アラームしきい値スライダー ---
+function bindThreshold(sliderId, showId, key){
+  const slider = document.getElementById(sliderId);
+  const show = document.getElementById(showId);
+  slider.addEventListener("input", ()=>{
+    state.thresholds[key] = parseInt(slider.value,10);
+    show.textContent = slider.value;
+    checkAlarm();
+  });
+}
+bindThreshold("hrWarnHighSlider","hrWarnHighShow","hrWarnHigh");
+bindThreshold("hrWarnLowSlider","hrWarnLowShow","hrWarnLow");
+bindThreshold("spo2WarnSlider","spo2WarnShow","spo2Warn");
+bindThreshold("sbpWarnHighSlider","sbpWarnHighShow","sbpWarnHigh");
+bindThreshold("sbpWarnLowSlider","sbpWarnLowShow","sbpWarnLow");
+bindThreshold("rrWarnHighSlider","rrWarnHighShow","rrWarnHigh");
+bindThreshold("rrWarnLowSlider","rrWarnLowShow","rrWarnLow");
+
+document.getElementById("qrsToggle").addEventListener("change",e=>qrs.enabled=e.target.checked);
+document.getElementById("qrsVolSlider").addEventListener("input",e=>{
+  qrs.volume=parseInt(e.target.value,10)/100;
+  document.getElementById("qrsVolShow").textContent=e.target.value;
+});
+function previewQrs(){ if(ensureAudio()) playQrsTone(); }
+document.getElementById("qrsType").addEventListener("change",e=>{qrs.type=e.target.value;previewQrs();});
+document.getElementById("qrsPitchSlider").addEventListener("input",e=>{
+  qrs.base=parseInt(e.target.value,10);
+  document.getElementById("qrsPitchShow").textContent=e.target.value;
+});
+document.getElementById("qrsPitchSlider").addEventListener("change",previewQrs);
+document.getElementById("qrsSpo2Link").addEventListener("change",e=>{qrs.spo2Link=e.target.checked;previewQrs();});
+document.getElementById("btnQrsPreview").addEventListener("click",previewQrs);
+
+
+// --- ミュート時間・波形振幅 ---
+document.getElementById("muteDurSlider").addEventListener("input", (e)=>{
+  state.muteDuration = parseInt(e.target.value,10);
+  document.getElementById("muteDurShow").textContent = e.target.value;
+});
+document.getElementById("gainSlider").addEventListener("input", (e)=>{
+  state.gain = parseFloat(e.target.value);
+  document.getElementById("gainShow").textContent = state.gain.toFixed(1) + "x";
+});
+
+// --- 設定パネル開閉 ---
+const settingsPanel = document.getElementById("settings");
+document.getElementById("btnSettings").addEventListener("click", ()=>{
+  settingsPanel.classList.toggle("open");
+});
+document.getElementById("closeSettings").addEventListener("click", ()=>{
+  settingsPanel.classList.remove("open");
+});
+
+// --- アラーム判定・音 ---
+const frameEl = document.getElementById("frame");
+const btnAlarm = document.getElementById("btnAlarm");
+let muteTimer = null;
+let audioCtx = null;
+let beepTimer = null;
+// --- アラーム音（2種）---
+// 警告(高優先度): IEC 60601-1-8風 3連+2連ビープ、速い周期で緊迫感を演出
+// 注意(中優先度): 「ピコン、ピコン」という柔らかい2音チャイムを、ゆったりした周期で反復
+function ensureAudio(){
+  if(!audioCtx){
+    try{ audioCtx = new (window.AudioContext||window.webkitAudioContext)(); }
+    catch(e){ return false; }
+  }
+  if(audioCtx.state === "suspended") audioCtx.resume();
+  return true;
+}
+
+function pulse(delaySec, freq, type, peakGain, dur){
+  const t0 = audioCtx.currentTime + delaySec;
+  const osc = audioCtx.createOscillator();
+  const gain = audioCtx.createGain();
+  osc.type = type;
+  osc.frequency.value = freq;
+  gain.gain.setValueAtTime(0.0001, t0);
+  gain.gain.exponentialRampToValueAtTime(peakGain, t0+0.012);
+  gain.gain.exponentialRampToValueAtTime(0.0001, t0+dur);
+  osc.connect(gain).connect(audioCtx.destination);
+  osc.start(t0);
+  osc.stop(t0+dur+0.02);
+}
+
+// 警告音サイクル：3連+2連の鋭いビープ（緊迫感）
+function playWarningCycle(){
+  const gap = 0.15, groupGap = 0.30;
+  pulse(0*gap, 987, "square", 0.22, 0.10);
+  pulse(1*gap, 987, "square", 0.22, 0.10);
+  pulse(2*gap, 987, "square", 0.22, 0.10);
+  const g2 = 2*gap + groupGap;
+  pulse(g2 + 0*gap, 1319, "square", 0.22, 0.10);
+  pulse(g2 + 1*gap, 1319, "square", 0.22, 0.10);
+}
+
+// 注意音サイクル：「ピコン、ピコン」やわらかい2音（サイン波・低音→高音）
+function playCautionCycle(){
+  pulse(0.00, 660, "sine", 0.18, 0.16);
+  pulse(0.22, 880, "sine", 0.18, 0.16);
+}
+
+let alarmSoundLevel = null; // "warning" | "caution" | null
+function setAlarmSound(level){
+  if(level === alarmSoundLevel) return;
+  clearInterval(beepTimer);
+  beepTimer = null;
+  alarmSoundLevel = level;
+  if(level === null) return;
+  if(!ensureAudio()) return;
+
+  if(level === "warning"){
+    playWarningCycle();
+    beepTimer = setInterval(playWarningCycle, 1600); // 速い周期＝緊迫感
+  } else if(level === "caution"){
+    playCautionCycle();
+    beepTimer = setInterval(playCautionCycle, 3000); // ゆったり周期
+  }
+}
+function stopBeep(){
+  setAlarmSound(null);
+}
+
+const alarmMsgEl = document.getElementById("alarmMsg");
+const badgeWarningEl = document.getElementById("badgeWarning");
+const badgeCautionEl = document.getElementById("badgeCaution");
+function checkAlarm(){
+  const warningReasons = [];
+  const cautionReasons = [];
+
+  // 警告(高優先度) — 危険域
+  const th = state.thresholds;
+  if(state.rhythm === "vt") warningReasons.push("心室頻拍(VT)アラーム");
+  if(state.rhythm === "vf") warningReasons.push("心室細動(VF)アラーム");
+  if(state.rhythm === "asys") warningReasons.push("心静止アラーム");
+  if(state.hr === 0){
+    if(state.rhythm !== "vf" && state.rhythm !== "asys") warningReasons.push("HR未検出アラーム");
+  } else if(state.rhythm !== "vt" && state.hr > th.hrWarnHigh) {
+    warningReasons.push("心拍上限アラーム(頻脈)");
+  } else if(state.rhythm !== "vt" && state.hr < th.hrWarnLow) {
+    warningReasons.push("心拍下限アラーム(徐脈)");
+  }
+  if(state.spo2 < th.spo2Warn) warningReasons.push("SpO2下限アラーム(低酸素)");
+  if(state.rr === 0) warningReasons.push("無呼吸アラーム");
+  else if(state.rr > th.rrWarnHigh) warningReasons.push("呼吸数上限アラーム");
+  else if(state.rr < th.rrWarnLow) warningReasons.push("呼吸数下限アラーム");
+  if(state.sbp === 0 || state.dbp === 0) warningReasons.push("血圧未検出アラーム");
+  else if(state.sbp >= th.sbpWarnHigh) warningReasons.push("血圧上限アラーム");
+  else if(state.sbp <= th.sbpWarnLow) warningReasons.push("血圧下限アラーム");
+
+  // 注意(中優先度) — 経過観察域（警告域は除く）
+  if(state.hr >= 100 && state.hr <= th.hrWarnHigh) cautionReasons.push("心拍上限注意");
+  if(state.hr >= th.hrWarnLow && state.hr < 55) cautionReasons.push("心拍下限注意");
+  if(state.spo2 >= th.spo2Warn && state.spo2 <= 92) cautionReasons.push("SpO2下限注意");
+  if(state.sbp >= 140 && state.sbp < th.sbpWarnHigh) cautionReasons.push("血圧上限注意");
+  if(state.sbp > th.sbpWarnLow && state.sbp <= 90) cautionReasons.push("血圧低下傾向注意");
+
+  const level = warningReasons.length ? "warning" : (cautionReasons.length ? "caution" : null);
+  const muted = state.muted;
+
+  // 警告・注意の四角ボックスは、それぞれの条件が該当していれば独立して点灯する
+  badgeWarningEl.classList.toggle("active", warningReasons.length > 0 && !muted);
+  badgeCautionEl.classList.toggle("active", cautionReasons.length > 0 && !muted);
+
+  frameEl.classList.remove("alarming-warning","alarming-caution");
+  alarmMsgEl.classList.remove("level-warning","level-caution");
+  btnAlarm.classList.remove("active");
+
+  if(level && !muted){
+    frameEl.classList.add(level === "warning" ? "alarming-warning" : "alarming-caution");
+    btnAlarm.classList.add("active");
+    setAlarmSound(level);
+    const label = level === "warning" ? "警告" : "注意";
+    const reasons = level === "warning" ? warningReasons : cautionReasons;
+    alarmMsgEl.classList.add(level === "warning" ? "level-warning" : "level-caution");
+    alarmMsgEl.textContent = `⚠ [${label}] ` + reasons.join(" / ");
+  } else {
+    setAlarmSound(null);
+    if(level){
+      const label = level === "warning" ? "警告" : "注意";
+      const reasons = level === "warning" ? warningReasons : cautionReasons;
+      alarmMsgEl.classList.add(level === "warning" ? "level-warning" : "level-caution");
+      alarmMsgEl.textContent = `⚠ [${label}/ミュート中] ` + reasons.join(" / ");
+    } else {
+      alarmMsgEl.textContent = "";
+    }
+  }
+}
+setInterval(checkAlarm, 500);
+
+// --- VT/VFシミュレーションと除細動 ---
+let hrBeforeRhythm=80, rhythmTimer=null, rhythmTarget=null, recoverTimer=null, shockBusy=false;
+function applyHr(v){
+  state.hr=Math.max(0,Math.min(180,Math.round(v)));
+  document.getElementById("hrSlider").value=state.hr;
+  document.getElementById("hrShow").textContent=state.hr;
+  refreshNumbers(); checkAlarm();
+}
+function clearRhythmSeq(){
+  clearInterval(rhythmTimer); rhythmTimer=null;
+  clearInterval(recoverTimer); recoverTimer=null;
+}
+function updateRhythmButtons(){
+  const v=document.getElementById("btnVT"), f=document.getElementById("btnVF");
+  v.classList.toggle("active",rhythmTarget==="vt");
+  f.classList.toggle("active",rhythmTarget==="vf");
+  v.textContent=rhythmTarget==="vt"?"VT解除":"VT波形";
+  f.textContent=rhythmTarget==="vf"?"VF解除":"VF波形";
+}
+function setRhythm(target){
+  if(shockBusy)return;
+  if(rhythmTarget===target){
+    clearRhythmSeq(); rhythmTarget=null; state.rhythm="nsr";
+    applyHr(hrBeforeRhythm); updateRhythmButtons(); return;
+  }
+  if(rhythmTarget===null) hrBeforeRhythm=state.hr>0?state.hr:80;
+  clearRhythmSeq(); rhythmTarget=target; state.rhythm="nsr";
+  let hr=state.hr>0?state.hr:hrBeforeRhythm; applyHr(hr); updateRhythmButtons();
+  let holdTicks=0;
+  rhythmTimer=setInterval(()=>{
+    if(hr<180){
+      hr=Math.min(180,hr+1.5); applyHr(hr);
+      if(hr>=150 && state.rhythm!=="vt"){state.rhythm="vt";checkAlarm();}
+    }else{
+      const toVF=target==="vf" || document.getElementById("autoVF").checked;
+      if(!toVF){clearRhythmSeq();return;}
+      if(++holdTicks>=40){
+        clearRhythmSeq(); state.rhythm="vf"; applyHr(0);
+      }
+    }
+  },100);
+}
+function playShockSound(){
+  if(!ensureAudio())return;
+  const t0=audioCtx.currentTime, osc=audioCtx.createOscillator(), g=audioCtx.createGain();
+  osc.type="sine"; osc.frequency.setValueAtTime(140,t0);
+  osc.frequency.exponentialRampToValueAtTime(45,t0+0.3);
+  g.gain.setValueAtTime(0.0001,t0);
+  g.gain.exponentialRampToValueAtTime(0.5,t0+0.01);
+  g.gain.exponentialRampToValueAtTime(0.0001,t0+0.32);
+  osc.connect(g).connect(audioCtx.destination); osc.start(t0); osc.stop(t0+0.35);
+}
+function startSinusRecovery(target){
+  target=target||hrBeforeRhythm||80; clearInterval(recoverTimer); state.rhythm="nsr";
+  let hr=Math.min(55,target); applyHr(hr);
+  recoverTimer=setInterval(()=>{
+    hr=Math.min(target,hr+1); applyHr(hr);
+    if(hr>=target){clearInterval(recoverTimer);recoverTimer=null;}
+  },100);
+}
+document.getElementById("btnVT").addEventListener("click",()=>setRhythm("vt"));
+document.getElementById("btnVF").addEventListener("click",()=>setRhythm("vf"));
+document.getElementById("btnShock").addEventListener("click",()=>{
+  if(shockBusy)return;
+  shockBusy=true; const prev=state.rhythm;
+  const restoreHr=rhythmTarget!==null?hrBeforeRhythm:(state.hr>0?state.hr:80);
+  const success=document.getElementById("shockSuccess").checked;
+  clearRhythmSeq(); state.shockT0=performance.now(); playShockSound();
+  const b=document.getElementById("btnShock"); b.classList.add("active"); b.textContent="⚡ 放電中…";
+  setTimeout(()=>{state.rhythm="asys";applyHr(0);},350);
+  setTimeout(()=>{
+    state.shockT0=null; b.classList.remove("active"); b.textContent="⚡ 除細動（ショック）"; shockBusy=false;
+    if(prev==="vt"||prev==="vf"){
+      if(success){rhythmTarget=null;updateRhythmButtons();startSinusRecovery();}
+      else{state.rhythm=prev;rhythmTarget=prev;updateRhythmButtons();applyHr(prev==="vt"?180:0);}
+    }else{rhythmTarget=null;updateRhythmButtons();startSinusRecovery(restoreHr);}
+  },2500);
+});
+const rhythmLabelEl=document.getElementById("rhythmLabel");
+setInterval(()=>{
+  const txt=state.shockT0!==null&&performance.now()-state.shockT0<350
+    ?"除細動 Shock"
+    :({nsr:"洞調律 Sinus",vt:"心室頻拍 VT",vf:"心室細動 VF",asys:"心静止 Asystole"}[state.rhythm]||"洞調律 Sinus");
+  rhythmLabelEl.textContent="II　"+txt;
+  rhythmLabelEl.style.color=state.rhythm==="nsr"?"#3dff3d":"#ff6a6a";
+},100);
+
+// --- アラームテストボタン：HRを異常値にして5秒後に戻す ---
+document.getElementById("btnAlarmTest").addEventListener("click", (e)=>{
+  const prevHr = state.hr;
+  state.hr = 165;
+  document.getElementById("hrSlider").value = 165;
+  document.getElementById("hrShow").textContent = 165;
+  refreshNumbers();
+  checkAlarm();
+  e.target.classList.add("active");
+  setTimeout(()=>{
+    state.hr = prevHr;
+    document.getElementById("hrSlider").value = prevHr;
+    document.getElementById("hrShow").textContent = prevHr;
+    refreshNumbers();
+    checkAlarm();
+    e.target.classList.remove("active");
+  }, 5000);
+});
+
+// --- 無音ボタン：90秒間ミュート ---
+document.getElementById("btnMute").addEventListener("click", (e)=>{
+  state.muted = true;
+  e.target.classList.add("active");
+  frameEl.classList.remove("alarming-warning","alarming-caution");
+  setAlarmSound(null);
+  clearTimeout(muteTimer);
+  muteTimer = setTimeout(()=>{
+    state.muted = false;
+    e.target.classList.remove("active");
+    checkAlarm();
+  }, state.muteDuration*1000);
+});
+
+// --- 記録ボタン：一時的にフラッシュ表示 ---
+document.getElementById("btnRecord").addEventListener("click", (e)=>{
+  e.target.textContent = "記録中…";
+  e.target.classList.add("active");
+  setTimeout(()=>{
+    e.target.textContent = "記録";
+    e.target.classList.remove("active");
+  }, 1200);
+});
+
+// --- 画面停止（フリーズ）ボタン ---
+document.getElementById("btnFreeze").addEventListener("click", (e)=>{
+  state.frozen = !state.frozen;
+  e.target.classList.toggle("active", state.frozen);
+  e.target.textContent = state.frozen ? "再開" : "画面停止";
+});
+
+// --- 波形速度ボタン（掃引速度を切替） ---
+const speedSteps = [0.5,1,1.5,2];
+let speedIdx = 1;
+document.getElementById("btnSpeed").addEventListener("click", (e)=>{
+  speedIdx = (speedIdx+1) % speedSteps.length;
+  state.speedMul = speedSteps[speedIdx];
+  e.target.textContent = `波形速度 x${state.speedMul}`;
+});
+
+// --- アラームボタン自体クリックで手動ミュート解除確認 ---
+btnAlarm.addEventListener("click", ()=>{
+  if(btnAlarm.classList.contains("active")){
+    alert(`アラーム内容:\nHR=${state.hr}, SpO2=${state.spo2}, BP=${state.sbp}/${state.dbp}`);
+  }
+});
+</script>
+</body>
+</html>
